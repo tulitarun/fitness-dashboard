@@ -44,6 +44,7 @@
   <div class="card">
     <div class="step" id="step1"><div class="dot">1</div><div class="body"><b>Sign in with Google</b><br>Click below and grant read-only access to your Drive.</div></div>
     <div class="step" id="step2"><div class="dot">2</div><div class="body"><b>List files in your "diet" folder</b><br>Proves the connection can actually read your fitness data folders.</div></div>
+    <div class="step" id="step3"><div class="dot">3</div><div class="body"><b>Fetch real Weight data</b><br>Pulls the actual most recent Weight CSV file's raw content — so we build the parser against real structure, not guesswork.</div></div>
 
     <button id="connectBtn">Connect Google Drive</button>
     <div id="errorBox" style="display:none;" class="error-box"></div>
@@ -51,6 +52,9 @@
     <div id="fileList" class="filelist" style="display:none;"></div>
     <div style="margin-top:16px;font-size:12px;color:var(--text-dim);">🔍 folders matching "Health Sync" (searched anywhere in your Drive):</div>
     <div id="healthSyncList" class="filelist" style="display:none;"></div>
+    <div style="margin-top:16px;font-size:12px;color:var(--text-dim);">⚖️ Weight folder — files found + raw content of most recent one:</div>
+    <div id="weightFiles" class="filelist" style="display:none;"></div>
+    <div id="weightRaw" class="filelist" style="display:none;white-space:pre-wrap;"></div>
   </div>
 </div>
 
@@ -89,6 +93,7 @@ window.onload = () => {
       markStep('step1', 'done');
       listDietFolder();
       searchHealthSyncFolders();
+      fetchLatestWeightFile();
     },
   });
 
@@ -97,6 +102,58 @@ window.onload = () => {
     tokenClient.requestAccessToken();
   });
 };
+
+async function fetchLatestWeightFile(){
+  const WEIGHT_FOLDER_ID = '1o3n0PYyf794XZwcNTvvCYquClE_-F4NG'; // Health Sync Weight, confirmed live via search
+  const filesBox = document.getElementById('weightFiles');
+  const rawBox = document.getElementById('weightRaw');
+  try {
+    const url = `https://www.googleapis.com/drive/v3/files?q='${WEIGHT_FOLDER_ID}'+in+parents+and+trashed=false&fields=files(id,name,modifiedTime,mimeType)&pageSize=100&orderBy=modifiedTime desc`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!res.ok){
+      const errText = await res.text();
+      filesBox.style.display = 'block';
+      filesBox.innerHTML = `<div style="color:var(--coral);">List failed (HTTP ${res.status}): ${errText}</div>`;
+      markStep('step3', 'error');
+      return;
+    }
+    const data = await res.json();
+    filesBox.style.display = 'block';
+    if (!data.files || data.files.length === 0){
+      filesBox.innerHTML = '<div>No files found in the Weight folder.</div>';
+      markStep('step3', 'error');
+      return;
+    }
+    filesBox.innerHTML = `<div>Found ${data.files.length} file(s), newest first:</div>` +
+      data.files.slice(0,10).map(f => `<div>📄 ${f.name} — modified ${new Date(f.modifiedTime).toLocaleString()}</div>`).join('');
+
+    // fetch raw content of the single most recent CSV
+    const newestCsv = data.files.find(f => f.name.toLowerCase().endsWith('.csv'));
+    if (!newestCsv){
+      rawBox.style.display = 'block';
+      rawBox.textContent = 'No .csv file found among the results above.';
+      markStep('step3', 'error');
+      return;
+    }
+    const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${newestCsv.id}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!contentRes.ok){
+      rawBox.style.display = 'block';
+      rawBox.textContent = `Failed to fetch file content (HTTP ${contentRes.status})`;
+      markStep('step3', 'error');
+      return;
+    }
+    const text = await contentRes.text();
+    rawBox.style.display = 'block';
+    rawBox.textContent = `RAW CONTENT of "${newestCsv.name}" (first 2000 chars):\n\n` + text.slice(0, 2000);
+    markStep('step3', 'done');
+  } catch (e) {
+    filesBox.style.display = 'block';
+    filesBox.innerHTML = `<div style="color:var(--coral);">Error: ${e.message}</div>`;
+    markStep('step3', 'error');
+  }
+}
 
 async function searchHealthSyncFolders(){
   const list = document.getElementById('healthSyncList');
