@@ -124,29 +124,59 @@ async function fetchLatestWeightFile(){
       markStep('step3', 'error');
       return;
     }
-    filesBox.innerHTML = `<div>Found ${data.files.length} file(s), newest first:</div>` +
-      data.files.slice(0,10).map(f => `<div>📄 ${f.name} — modified ${new Date(f.modifiedTime).toLocaleString()}</div>`).join('');
+    const csvFiles = data.files.filter(f => f.name.toLowerCase().endsWith('.csv'));
+    filesBox.innerHTML = `<div>Found ${data.files.length} file(s) (${csvFiles.length} CSVs), newest-modified first:</div>` +
+      data.files.slice(0,10).map(f => `<div>📄 ${f.name} — modified ${new Date(f.modifiedTime).toLocaleString()}</div>`).join('') +
+      `<div style="margin-top:8px;color:var(--amber);">Scanning all ${csvFiles.length} CSVs for the true latest date (file modified-time isn't reliable — these are dated export snapshots, not a live log)...</div>`;
 
-    // fetch raw content of the single most recent CSV
-    const newestCsv = data.files.find(f => f.name.toLowerCase().endsWith('.csv'));
-    if (!newestCsv){
-      rawBox.style.display = 'block';
-      rawBox.textContent = 'No .csv file found among the results above.';
-      markStep('step3', 'error');
-      return;
+    const splitCsvLine = (line) => line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const parseDate = (dateStr) => {
+      // handles both "2025.11.01" and "2025-11-01" style
+      const parts = dateStr.split(/[.\-]/).map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) return null;
+      return new Date(parts[0], parts[1]-1, parts[2]);
+    };
+
+    let globalLatest = { date: null, row: null, headers: null, fileName: null };
+    let filesScanned = 0, filesFailed = 0;
+
+    for (const f of csvFiles){
+      try {
+        const cRes = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        if (!cRes.ok){ filesFailed++; continue; }
+        const txt = await cRes.text();
+        const lines = txt.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length < 2) continue;
+        const headers = splitCsvLine(lines[0]);
+        for (const line of lines.slice(1)){
+          const vals = splitCsvLine(line);
+          if (vals.length !== headers.length) continue;
+          const d = parseDate(vals[0]);
+          if (!d) continue;
+          if (!globalLatest.date || d > globalLatest.date){
+            globalLatest = { date: d, row: vals, headers, fileName: f.name };
+          }
+        }
+        filesScanned++;
+      } catch(e){ filesFailed++; }
     }
-    const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${newestCsv.id}?alt=media`, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    if (!contentRes.ok){
-      rawBox.style.display = 'block';
-      rawBox.textContent = `Failed to fetch file content (HTTP ${contentRes.status})`;
-      markStep('step3', 'error');
-      return;
-    }
-    const text = await contentRes.text();
+
     rawBox.style.display = 'block';
-    rawBox.textContent = `RAW CONTENT of "${newestCsv.name}" (first 2000 chars):\n\n` + text.slice(0, 2000);
+    if (!globalLatest.date){
+      rawBox.textContent = `Scanned ${filesScanned} files (${filesFailed} failed) but couldn't find a parseable date in any of them.`;
+      markStep('step3', 'error');
+      return;
+    }
+    const labeled = globalLatest.headers.map((h, i) => `${h}: ${globalLatest.row[i]}`).join('\n');
+    rawBox.textContent =
+`Scanned ${filesScanned} CSV files (${filesFailed} failed to fetch).
+
+TRUE MOST RECENT READING (found in "${globalLatest.fileName}"):
+${labeled}
+
+Latest date found: ${globalLatest.date.toDateString()}`;
     markStep('step3', 'done');
   } catch (e) {
     filesBox.style.display = 'block';
