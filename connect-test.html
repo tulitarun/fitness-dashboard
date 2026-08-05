@@ -47,7 +47,10 @@
 
     <button id="connectBtn">Connect Google Drive</button>
     <div id="errorBox" style="display:none;" class="error-box"></div>
+    <div style="margin-top:16px;font-size:12px;color:var(--text-dim);">📁 diet folder:</div>
     <div id="fileList" class="filelist" style="display:none;"></div>
+    <div style="margin-top:16px;font-size:12px;color:var(--text-dim);">🔍 folders matching "Health Sync" (searched anywhere in your Drive):</div>
+    <div id="healthSyncList" class="filelist" style="display:none;"></div>
   </div>
 </div>
 
@@ -85,6 +88,7 @@ window.onload = () => {
       accessToken = tokenResponse.access_token;
       markStep('step1', 'done');
       listDietFolder();
+      searchHealthSyncFolders();
     },
   });
 
@@ -93,6 +97,31 @@ window.onload = () => {
     tokenClient.requestAccessToken();
   });
 };
+
+async function searchHealthSyncFolders(){
+  const list = document.getElementById('healthSyncList');
+  try {
+    const q = encodeURIComponent("name contains 'Health Sync' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,parents)&pageSize=50`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!res.ok){
+      const errText = await res.text();
+      list.style.display = 'block';
+      list.innerHTML = `<div style="color:var(--coral);">Search failed (HTTP ${res.status}): ${errText}</div>`;
+      return;
+    }
+    const data = await res.json();
+    list.style.display = 'block';
+    if (!data.files || data.files.length === 0){
+      list.innerHTML = '<div>No folders found matching "Health Sync" — check the name or sharing permissions.</div>';
+      return;
+    }
+    list.innerHTML = data.files.map(f => `<div>📁 ${f.name} <span style="color:var(--text-dim);">(id: ${f.id})</span></div>`).join('');
+  } catch (e) {
+    list.style.display = 'block';
+    list.innerHTML = `<div style="color:var(--coral);">Error: ${e.message}</div>`;
+  }
+}
 
 async function listDietFolder(){
   try {
