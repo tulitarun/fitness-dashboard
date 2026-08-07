@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tarun — Live Fitness Dashboard</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
+<style>
+  :root{
+    --ink:#0B1420; --panel:#152436; --panel-hi:#1B2C40; --line:#233245; --line-soft:#1A2739;
+    --text:#EDF2F7; --text-dim:#93A3B8; --text-faint:#5C7086;
+    --emerald:#1FC98E; --emerald-dim:#1FC98E22; --coral:#E1595A; --coral-dim:#E1595A22;
+    --amber:#E8A33D; --steel:#5B9BD5; --violet:#9B7FE8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--ink);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
+  .num{font-variant-numeric:tabular-nums;}
+  .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 60px;}
+  h1{font-size:20px;margin:0 0 4px;}
+  .sub{color:var(--text-dim);font-size:12.5px;margin-bottom:20px;}
+
+  .topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;}
+  .period-bar{display:flex;gap:4px;background:var(--panel-hi);border-radius:16px;padding:3px;}
+  .period-btn{border:none;background:transparent;color:var(--text-dim);font-size:12px;font-weight:600;
+    padding:6px 13px;border-radius:13px;cursor:pointer;}
+  .period-btn.active{background:var(--emerald);color:#08150F;}
+  .nav-group{display:flex;align-items:center;gap:4px;margin-left:auto;}
+  .nav-btn{border:1px solid var(--line);background:var(--panel-hi);color:var(--text-dim);
+    width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:12px;}
+  .nav-btn:disabled{opacity:.3;}
+  .date-badge{font-size:12px;color:var(--text-dim);padding:5px 12px;}
+  .date-badge b{color:var(--text);}
+  input[type=date]{background:var(--panel-hi);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:5px 8px;font-size:12px;}
+
+  .card-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px;}
+  .kpi-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+    border-left:3px solid var(--steel);}
+  .kpi-card.none{border-left-color:var(--line);opacity:.6;}
+  .kpi-label{font-size:10.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
+  .kpi-value{font-size:21px;font-weight:800;}
+  .kpi-sub{font-size:11px;color:var(--text-faint);margin-top:3px;}
+
+  .section-head{font-size:13px;font-weight:700;color:var(--text-dim);text-transform:uppercase;
+    letter-spacing:.04em;margin:28px 0 12px;display:flex;align-items:center;gap:10px;}
+  .section-head::after{content:'';flex:1;height:1px;background:var(--line);}
+
+  .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px;}
+  .chart-card h3{margin:0 0 2px;font-size:12.5px;}
+  .chart-card .cap{font-size:10.5px;color:var(--text-faint);margin-bottom:10px;}
+
+  details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:24px;}
+  summary{cursor:pointer;font-size:12.5px;color:var(--text-dim);font-weight:600;}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px;}
+  .step{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;}
+  .step .dot{width:22px;height:22px;border-radius:50%;background:var(--line);color:var(--text-dim);
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;}
+  .step.done .dot{background:var(--emerald);color:#08150F;}
+  .step.error .dot{background:var(--coral);color:#fff;}
+  .step .body{flex:1;font-size:13.5px;color:var(--text-dim);}
+  .step .body b{color:var(--text);}
+  button{background:var(--emerald);color:#08150F;border:none;border-radius:8px;padding:10px 18px;
+    font-size:13px;font-weight:700;cursor:pointer;}
+  button:hover{opacity:.9;}
+  button:disabled{opacity:.4;cursor:default;}
+  .filelist{margin-top:16px;background:var(--ink);border:1px solid var(--line);border-radius:8px;
+    padding:14px;font-family:monospace;font-size:12px;color:var(--text-dim);max-height:300px;overflow-y:auto;}
+  .filelist div{padding:3px 0;}
+  .error-box{background:#E1595A22;border:1px solid var(--coral);border-radius:8px;padding:14px;
+    font-size:12.5px;color:#F2B6C0;margin-top:14px;white-space:pre-wrap;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Fitness Dashboard</h1>
+  <div class="sub">Live from your Drive-synced data — Weight, Heart Rate, Steps, Sleep.</div>
+
+  <div class="topbar">
+    <div class="period-bar" id="periodBar">
+      <button class="period-btn" data-period="daily">Daily</button>
+      <button class="period-btn active" data-period="weekly">Weekly</button>
+      <button class="period-btn" data-period="monthly">Monthly</button>
+      <button class="period-btn" data-period="yearly">Yearly</button>
+    </div>
+    <div class="nav-group">
+      <button class="nav-btn" id="navPrev">◀</button>
+      <span class="date-badge">Showing <b id="periodLabel">—</b></span>
+      <input type="date" id="anchorDateInput">
+      <button class="nav-btn" id="navNext">▶</button>
+      <button class="nav-btn" id="navToday" style="width:auto;padding:0 10px;border-radius:13px;">Today</button>
+    </div>
+  </div>
+
+  <div id="noDataMsg" style="display:none;background:var(--panel);border:1px solid var(--amber);border-radius:12px;
+    padding:16px 20px;font-size:13px;color:var(--text-dim);margin-bottom:20px;">
+    No synced data yet — open "Data Sync" below, connect Google Drive, and hit Sync Now.
+  </div>
+
+  <div class="section-head">This Period</div>
+  <div class="card-row" id="kpiRow"></div>
+
+  <div class="section-head">Trends</div>
+  <div class="chart-card"><h3>Weight & Body Fat</h3><div class="cap">Daily readings, dashed = body fat %</div><canvas id="weightChart"></canvas></div>
+  <div class="chart-card"><h3>Steps</h3><div class="cap">Daily totals</div><canvas id="stepsChart"></canvas></div>
+  <div class="chart-card"><h3>Heart Rate</h3><div class="cap">Daily avg / max</div><canvas id="hrChart"></canvas></div>
+  <div class="chart-card"><h3>Sleep</h3><div class="cap">Nightly total, minutes</div><canvas id="sleepChart"></canvas></div>
+
+  <details>
+    <summary>Data Sync (connect + refresh)</summary>
+    <div style="margin-top:16px;">
+      <div class="step" id="step1"><div class="dot">1</div><div class="body"><b>Sign in with Google</b><br>Click below and grant read-only access to your Drive.</div></div>
+      <div class="step" id="step2"><div class="dot">2</div><div class="body"><b>List files in your "diet" folder</b><br>Proves the connection can actually read your fitness data folders.</div></div>
+      <div class="step" id="step3"><div class="dot">3</div><div class="body"><b>Incremental sync engine</b><br>First run: full historical scan, stored locally. Every run after: only fetches files newer than the last sync.</div></div>
+
+      <button id="connectBtn">Connect Google Drive</button>
+      <div id="errorBox" style="display:none;" class="error-box"></div>
+      <div style="margin-top:16px;font-size:12px;color:var(--text-dim);">📁 diet folder:</div>
+      <div id="fileList" class="filelist" style="display:none;"></div>
+      <div style="margin-top:16px;font-size:12px;color:var(--text-dim);">🔍 folders matching "Health Sync":</div>
+      <div id="healthSyncList" class="filelist" style="display:none;"></div>
+      <div style="margin-top:16px;">
+        <button id="syncBtn">Sync Now (incremental)</button>
+        <span id="syncStatus" style="margin-left:12px;font-size:12px;color:var(--text-dim);"></span>
+      </div>
+      <div id="syncLog" class="filelist" style="display:none;white-space:pre-wrap;margin-top:12px;"></div>
+    </div>
+  </details>
+</div>
+
+<script>
+const CLIENT_ID = '288152547975-3fsukmk0us5nrdi0ukja7f5eijtnka96.apps.googleusercontent.com';
+const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+const DIET_FOLDER_ID = '11uKwov0INvDCMoIJNSrQ3kQDZghpHmdB'; // your known "diet" folder
+
+let tokenClient;
+let accessToken = null;
+
+function markStep(id, state){
+  const el = document.getElementById(id);
+  el.classList.remove('done','error');
+  if (state) el.classList.add(state);
+  el.querySelector('.dot').textContent = state === 'done' ? '✓' : state === 'error' ? '✕' : el.querySelector('.dot').textContent;
+}
+
+function showError(msg){
+  const box = document.getElementById('errorBox');
+  box.style.display = 'block';
+  box.textContent = msg;
+}
+
+window.onload = () => {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (tokenResponse) => {
+      if (tokenResponse.error){
+        markStep('step1', 'error');
+        showError('Sign-in failed: ' + tokenResponse.error + '\n\n' + (tokenResponse.error_description || ''));
+        return;
+      }
+      accessToken = tokenResponse.access_token;
+      markStep('step1', 'done');
+      listDietFolder();
+      searchHealthSyncFolders();
+    },
+  });
+
+  document.getElementById('connectBtn').addEventListener('click', () => {
+    document.getElementById('errorBox').style.display = 'none';
+    tokenClient.requestAccessToken();
+  });
+};
+
+
+
+async function searchHealthSyncFolders(){
+  const list = document.getElementById('healthSyncList');
+  try {
+    const q = encodeURIComponent("name contains 'Health Sync' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,parents)&pageSize=50`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!res.ok){
+      const errText = await res.text();
+      list.style.display = 'block';
+      list.innerHTML = `<div style="color:var(--coral);">Search failed (HTTP ${res.status}): ${errText}</div>`;
+      return;
+    }
+    const data = await res.json();
+    list.style.display = 'block';
+    if (!data.files || data.files.length === 0){
+      list.innerHTML = '<div>No folders found matching "Health Sync" — check the name or sharing permissions.</div>';
+      return;
+    }
+    list.innerHTML = data.files.map(f => `<div>📁 ${f.name} <span style="color:var(--text-dim);">(id: ${f.id})</span></div>`).join('');
+  } catch (e) {
+    list.style.display = 'block';
+    list.innerHTML = `<div style="color:var(--coral);">Error: ${e.message}</div>`;
+  }
+}
+
+async function listDietFolder(){
+  try {
+    const url = `https://www.googleapis.com/drive/v3/files?q='${DIET_FOLDER_ID}'+in+parents&fields=files(id,name,mimeType,modifiedTime)&pageSize=50`;
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!res.ok){
+      const errText = await res.text();
+      markStep('step2', 'error');
+      showError(`Drive API call failed (HTTP ${res.status}):\n\n${errText}`);
+      return;
+    }
+    const data = await res.json();
+    markStep('step2', 'done');
+    const list = document.getElementById('fileList');
+    list.style.display = 'block';
+    if (!data.files || data.files.length === 0){
+      list.innerHTML = '<div>No files found in that folder — check the folder ID or permissions.</div>';
+      return;
+    }
+    list.innerHTML = data.files.map(f =>
+      `<div>${f.mimeType.includes('folder') ? '📁' : '📄'} ${f.name}</div>`
+    ).join('');
+  } catch (e) {
+    markStep('step2', 'error');
+    showError('Unexpected error calling Drive API:\n\n' + e.message);
+  }
+}
+
+// ====================================================================
+// PHASE 2: Incremental sync engine (IndexedDB-backed, deduplicated)
+// ====================================================================
+const DB_NAME = 'fitness_sync_db';
+let db;
+
+function openDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const database = e.target.result;
+      if (!database.objectStoreNames.contains('records')){
+        const store = database.createObjectStore('records', { keyPath: 'uid' });
+        store.createIndex('source', 'source', { unique: false });
+      }
+      if (!database.objectStoreNames.contains('syncState')){
+        database.createObjectStore('syncState', { keyPath: 'source' });
+      }
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function putRecord(record){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('records', 'readwrite');
+    tx.objectStore('records').put(record); // put = insert-or-overwrite by uid -> natural dedup
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+// Writes many records in ONE transaction instead of one transaction per record — dramatically
+// faster for sources with many small records (e.g. individual sleep segments).
+function putRecordsBatch(records){
+  if (!records.length) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('records', 'readwrite');
+    const store = tx.objectStore('records');
+    for (const r of records) store.put(r);
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+function getAllRecords(source){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('records', 'readonly');
+    const idx = tx.objectStore('records').index('source');
+    const req = idx.getAll(IDBKeyRange.only(source));
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function getSyncState(source){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('syncState', 'readonly');
+    const req = tx.objectStore('syncState').get(source);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function setSyncState(source, lastSyncISO){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('syncState', 'readwrite');
+    tx.objectStore('syncState').put({ source, lastSync: lastSyncISO });
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
+const splitCsvLine2 = (line) => line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+
+function log(msg){
+  const el = document.getElementById('syncLog');
+  el.style.display = 'block';
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+// Generic incremental folder sync: fetches only files modified since last sync (or everything, first time)
+// Retries a fetch up to 3 times with increasing delay — transient network blips and Google API
+// rate-limiting become more likely the more requests a single sync session makes.
+async function fetchWithRetry(url, options, retries = 3){
+  for (let attempt = 1; attempt <= retries; attempt++){
+    try {
+      const res = await fetch(url, options);
+      if (res.ok || res.status < 500) return res; // don't retry on real errors like 404/403, only network/5xx
+      if (attempt === retries) return res;
+    } catch(e){
+      if (attempt === retries) throw e;
+    }
+    await new Promise(r => setTimeout(r, 500 * attempt)); // 500ms, 1000ms, ...
+  }
+}
+
+async function incrementalListFiles(folderId, sourceName){
+  const state = await getSyncState(sourceName);
+  const isFirst = !state;
+  let q = `'${folderId}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'`;
+  if (!isFirst && state.lastSync){
+    q += ` and modifiedTime > '${state.lastSync}'`;
+  }
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&pageSize=1000`;
+  const res = await fetchWithRetry(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`List failed for ${sourceName}: HTTP ${res.status}`);
+  const data = await res.json();
+  return { files: (data.files || []).filter(f => f.name.toLowerCase().endsWith('.csv')), isFirst };
+}
+
+async function syncWeightSource(){
+  const FOLDER_ID = '1o3n0PYyf794XZwcNTvvCYquClE_-F4NG';
+  log(`\n--- WEIGHT ---`);
+  const { files, isFirst } = await incrementalListFiles(FOLDER_ID, 'weight');
+  log(`${isFirst ? 'First sync' : 'Incremental sync'}: ${files.length} file(s) to process.`);
+  let newestModified = null, rowsAdded = 0;
+  for (const f of files){
+    try {
+      const cRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+      if (!cRes.ok) continue;
+      const txt = await cRes.text();
+      const lines = txt.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length < 2) continue;
+      const headers = splitCsvLine2(lines[0]);
+      for (const line of lines.slice(1)){
+        const vals = splitCsvLine2(line);
+        if (vals.length !== headers.length) continue;
+        const dateTime = vals[0]; // e.g. "2026.08.06 06:32:04" or "2026.08.06"
+        const weight = vals[2];
+        const bodyFat = vals[3];
+        const uid = `weight_${dateTime}_${weight}`; // dedups exact repeats automatically
+        await putRecord({ uid, source: 'weight', dateTime, weight: parseFloat(weight), bodyFatPct: parseFloat(bodyFat) || null });
+        rowsAdded++;
+      }
+      if (!newestModified || f.modifiedTime > newestModified) newestModified = f.modifiedTime;
+    } catch(e){ log(`  failed on ${f.name}: ${e.message}`); }
+  }
+  if (newestModified) await setSyncState('weight', newestModified);
+  else if (isFirst) await setSyncState('weight', new Date().toISOString());
+  log(`Weight: ${rowsAdded} rows processed (dedup applied automatically via unique keys).`);
+}
+
+// Finds a column index by matching header names against keywords (case-insensitive, partial match).
+// Safer than assuming fixed positions — we haven't visually confirmed Steps/Sleep headers yet.
+function findCol(headers, keywords){
+  for (let i = 0; i < headers.length; i++){
+    const h = headers[i].toLowerCase();
+    if (keywords.some(k => h.includes(k))) return i;
+  }
+  return -1;
+}
+
+// Reads all raw per-file records for a source, groups by `groupKey`, and for each group
+// picks the single record scoring highest on `scoreField` — i.e. "the fullest file wins"
+// rather than summing across files (which risks double-counting overlapping exports).
+async function materializeByBestFile(source, groupKey, scoreField){
+  const all = await getAllRecords(source);
+  const groups = {};
+  for (const r of all){
+    const key = r[groupKey];
+    if (!groups[key] || r[scoreField] > groups[key][scoreField]) groups[key] = r;
+  }
+  return Object.values(groups);
+}
+
+async function syncStepsSource(){
+  const FOLDER_ID = '16iDb6gZjm05bqxTzrC_UIpltqj4hVx3E';
+  log(`\n--- STEPS (per-file storage, materialized as: fullest file per day wins) ---`);
+
+  const migrated = (await getSyncState('steps_schema_v2')) !== null;
+  if (!migrated){
+    log(`  Migrating steps storage to per-file records (one-time, clearing old day-only records)...`);
+    await clearSource('steps');
+    await setSyncState('steps', null);
+    await setSyncState('steps_schema_v2', new Date().toISOString());
+  }
+
+  const { files, isFirst } = await incrementalListFiles(FOLDER_ID, 'steps');
+  log(`${isFirst ? 'First sync' : 'Incremental sync'}: ${files.length} file(s) to process.`);
+  let newestModified = null, filesDone = 0, colWarning = null;
+  const BATCH = 6;
+  for (let i = 0; i < files.length; i += BATCH){
+    const batch = files.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (f) => {
+      try {
+        const cRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (!cRes.ok) return;
+        const txt = await cRes.text();
+        const lines = txt.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length < 2) return;
+        const headers = splitCsvLine2(lines[0]);
+        const dateCol = findCol(headers, ['date']);
+        const stepCol = findCol(headers, ['step', 'count']);
+        if (dateCol === -1 || stepCol === -1){
+          colWarning = `Could not find Date/Step columns in "${f.name}". Headers seen: ${headers.join(', ')}`;
+          return;
+        }
+        const seen = new Set();
+        const perDay = {};
+        for (const line of lines.slice(1)){
+          const vals = splitCsvLine2(line);
+          if (vals.length !== headers.length) continue;
+          const dateTime = vals[dateCol];
+          const steps = parseInt(vals[stepCol], 10);
+          if (isNaN(steps)) continue;
+          const dedupKey = dateTime; // timestamp alone — two readings at the same minute are sync jitter, not distinct events
+          if (seen.has(dedupKey)) continue;
+          seen.add(dedupKey);
+          const day = dateTime.split(' ')[0];
+          perDay[day] = (perDay[day] || 0) + steps;
+        }
+        for (const day in perDay){
+          // uid includes file id: each file's own contribution is stored separately, never overwritten by a different file
+          await putRecord({ uid: `steps_${day}_${f.id}`, source: 'steps', day, totalSteps: perDay[day], fileId: f.id });
+        }
+        if (!newestModified || f.modifiedTime > newestModified) newestModified = f.modifiedTime;
+      } catch(e){ /* skip failed file */ }
+    }));
+    filesDone += batch.length;
+    document.getElementById('syncStatus').textContent = `Steps: ${filesDone}/${files.length} files...`;
+  }
+  if (colWarning) log(`  WARNING: ${colWarning}`);
+  if (newestModified) await setSyncState('steps', newestModified);
+  else if (isFirst) await setSyncState('steps', new Date().toISOString());
+  log(`Steps: processed ${filesDone} files (stored per-file, not yet merged).`);
+}
+
+function clearSource(source){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('records', 'readwrite');
+    const idx = tx.objectStore('records').index('source');
+    const req = idx.openCursor(IDBKeyRange.only(source));
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor){ cursor.delete(); cursor.continue(); }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function syncSleepSource(){
+  const FOLDER_ID = '1d16YC8Zv50eLM-V6XorIMFIKQ55MzRwA';
+  log(`\n--- SLEEP (raw segments stored, merged via interval union at read time) ---`);
+
+  // schema v3: store raw start/end intervals instead of pre-aggregated per-file totals —
+  // required for correct overlap handling (overlapping files with slightly offset boundaries)
+  const migrated = (await getSyncState('sleep_schema_v3')) !== null;
+  if (!migrated){
+    log(`  Migrating sleep storage to raw intervals (one-time, clearing old aggregate records)...`);
+    await clearSource('sleep');
+    await setSyncState('sleep', null);
+    await setSyncState('sleep_schema_v3', new Date().toISOString());
+  }
+
+  const { files, isFirst } = await incrementalListFiles(FOLDER_ID, 'sleep');
+  log(`${isFirst ? 'First sync' : 'Incremental sync'}: ${files.length} file(s) to process.`);
+  let newestModified = null, filesDone = 0, colWarning = null, segmentsStored = 0;
+  const nightOf = (dateStr, timeStr) => {
+    const [y,m,d] = dateStr.split('.').map(Number);
+    const hour = parseInt((timeStr||'12:00').split(':')[0], 10);
+    const dt = new Date(y, m-1, d);
+    if (hour < 15) dt.setDate(dt.getDate() - 1);
+    return dt.toISOString().split('T')[0];
+  };
+  const parseDateTime = (dateStr, timeStr) => {
+    const [y,mo,d] = dateStr.split('.').map(Number);
+    const [h,mi,s] = (timeStr||'00:00:00').split(':').map(Number);
+    return new Date(y, mo-1, d, h, mi, s||0).getTime();
+  };
+
+  const BATCH = 6;
+  for (let i = 0; i < files.length; i += BATCH){
+    const batch = files.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (f) => {
+      try {
+        const cRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (!cRes.ok) return;
+        const txt = await cRes.text();
+        const lines = txt.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length < 2) return;
+        const headers = splitCsvLine2(lines[0]);
+        const dateCol = findCol(headers, ['date']);
+        const timeCol = findCol(headers, ['time']);
+        const durCol = findCol(headers, ['duration']);
+        const stageCol = findCol(headers, ['stage']);
+        if (dateCol === -1 || durCol === -1 || stageCol === -1){
+          colWarning = `Missing expected columns in "${f.name}". Headers seen: ${headers.join(', ')}`;
+          return;
+        }
+        const batchRecords = [];
+        let idx = 0;
+        for (const line of lines.slice(1)){
+          const vals = splitCsvLine2(line);
+          if (vals.length !== headers.length) continue;
+          const dateFull = vals[dateCol];
+          const datePart = dateFull.split(' ')[0];
+          const timePart = timeCol !== -1 ? vals[timeCol] : dateFull.split(' ')[1];
+          const durSec = parseInt(vals[durCol], 10);
+          const stage = (vals[stageCol] || 'unknown').toLowerCase();
+          if (isNaN(durSec) || durSec <= 0) continue;
+          const night = nightOf(datePart, timePart);
+          const startMs = parseDateTime(datePart, timePart);
+          const endMs = startMs + durSec*1000;
+          batchRecords.push({
+            uid: `sleep_seg_${f.id}_${idx}`, source: 'sleep', night, fileId: f.id,
+            startMs, endMs, stage,
+          });
+          idx++;
+        }
+        await putRecordsBatch(batchRecords); // one transaction for this whole file's segments
+        segmentsStored += batchRecords.length;
+        if (!newestModified || f.modifiedTime > newestModified) newestModified = f.modifiedTime;
+      } catch(e){ /* skip failed file */ }
+    }));
+    filesDone += batch.length;
+    document.getElementById('syncStatus').textContent = `Sleep: ${filesDone}/${files.length} files...`;
+  }
+  if (colWarning) log(`  WARNING: ${colWarning}`);
+  if (newestModified) await setSyncState('sleep', newestModified);
+  else if (isFirst) await setSyncState('sleep', new Date().toISOString());
+  log(`Sleep: stored ${segmentsStored} raw segments from ${filesDone} files (merged at read time).`);
+}
+
+// Merges a list of {startMs, endMs} intervals into their union, returns total covered duration in ms.
+// This is what correctly handles overlapping segments from different export files, regardless of
+// small boundary offsets — the standard, correct algorithm for this kind of problem.
+function mergeIntervalsMs(intervals){
+  if (!intervals.length) return 0;
+  const sorted = intervals.slice().sort((a,b) => a.startMs - b.startMs);
+  let totalMs = 0;
+  let curStart = sorted[0].startMs, curEnd = sorted[0].endMs;
+  for (let i = 1; i < sorted.length; i++){
+    const seg = sorted[i];
+    if (seg.startMs <= curEnd){ // overlaps or touches — extend
+      curEnd = Math.max(curEnd, seg.endMs);
+    } else {
+      totalMs += (curEnd - curStart);
+      curStart = seg.startMs; curEnd = seg.endMs;
+    }
+  }
+  totalMs += (curEnd - curStart);
+  return totalMs;
+}
+
+async function syncHeartRateSource(){
+  const FOLDER_ID = '15upWhc-en6B7N89g9Ta907_elpv-rRaF';
+  log(`\n--- HEART RATE (aggregated to daily avg/max) ---`);
+
+  const migrated = (await getSyncState('heartrate_schema_v2')) !== null;
+  if (!migrated){
+    log(`  Migrating heart rate storage to per-file records (one-time, clearing old day-only records)...`);
+    await clearSource('heartrate');
+    await setSyncState('heartrate', null);
+    await setSyncState('heartrate_schema_v2', new Date().toISOString());
+  }
+
+  const { files, isFirst } = await incrementalListFiles(FOLDER_ID, 'heartrate');
+  log(`${isFirst ? 'First sync' : 'Incremental sync'}: ${files.length} file(s) to process.${isFirst ? ' (first sync may take a while — many per-day files)' : ''}`);
+  let newestModified = null, filesDone = 0;
+  const BATCH = 6;
+  for (let i = 0; i < files.length; i += BATCH){
+    const batch = files.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (f) => {
+      try {
+        const cRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (!cRes.ok) return;
+        const txt = await cRes.text();
+        const lines = txt.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length < 2) return;
+        const headers = splitCsvLine2(lines[0]);
+        // dedup by timestamp alone — two readings claiming the same minute are sync jitter, not two real events
+        const seen = new Set();
+        const perDay = {};
+        for (const line of lines.slice(1)){
+          const vals = splitCsvLine2(line);
+          if (vals.length !== headers.length) continue;
+          const dateTime = vals[0];
+          const hr = parseInt(vals[2], 10);
+          if (isNaN(hr)) continue;
+          const dedupKey = dateTime;
+          if (seen.has(dedupKey)) continue;
+          seen.add(dedupKey);
+          const day = dateTime.split(' ')[0];
+          if (!perDay[day]) perDay[day] = { sum: 0, count: 0, max: 0 };
+          perDay[day].sum += hr;
+          perDay[day].count++;
+          perDay[day].max = Math.max(perDay[day].max, hr);
+        }
+        for (const day in perDay){
+          const agg = perDay[day];
+          // uid includes file id: each file's own daily aggregate stored separately, materialized (best-file-wins) later
+          const uid = `heartrate_${day}_${f.id}`;
+          await putRecord({ uid, source: 'heartrate', day, avgHr: Math.round(agg.sum / agg.count), maxHr: agg.max, sampleCount: agg.count, fileId: f.id });
+        }
+        if (!newestModified || f.modifiedTime > newestModified) newestModified = f.modifiedTime;
+      } catch(e){ /* skip failed file */ }
+    }));
+    filesDone += batch.length;
+    document.getElementById('syncStatus').textContent = `Heart Rate: ${filesDone}/${files.length} files...`;
+  }
+  if (newestModified) await setSyncState('heartrate', newestModified);
+  else if (isFirst) await setSyncState('heartrate', new Date().toISOString());
+  log(`Heart Rate: processed ${filesDone} files into daily aggregates.`);
+}
+
+// Correct approach: group all raw segments (across every file) by night and stage, then merge
+// each stage's intervals into their true union — this handles overlapping files with slightly
+// offset boundaries correctly, unlike point-based dedup or picking a single "best" file.
+async function materializeSleepNights(){
+  const all = await getAllRecords('sleep');
+  const byNight = {};
+  for (const r of all){
+    if (!byNight[r.night]) byNight[r.night] = {};
+    if (!byNight[r.night][r.stage]) byNight[r.night][r.stage] = [];
+    byNight[r.night][r.stage].push({ startMs: r.startMs, endMs: r.endMs });
+  }
+  const results = [];
+  for (const night in byNight){
+    const stages = byNight[night];
+    const remMin = Math.round(mergeIntervalsMs(stages['rem']||[]) / 60000);
+    const lightMin = Math.round(mergeIntervalsMs(stages['light']||[]) / 60000);
+    const deepMin = Math.round(mergeIntervalsMs(stages['deep']||[]) / 60000);
+    const awakeMin = Math.round(mergeIntervalsMs(stages['awake']||[]) / 60000);
+    results.push({ night, remMin, lightMin, deepMin, awakeMin, totalSleepMin: remMin+lightMin+deepMin+awakeMin });
+  }
+  return results;
+}
+
+document.getElementById('syncBtn').addEventListener('click', async () => {
+  if (!accessToken){
+    alert('Sign in first (Connect Google Drive button above).');
+    return;
+  }
+  const btn = document.getElementById('syncBtn');
+  const status = document.getElementById('syncStatus');
+  btn.disabled = true;
+  document.getElementById('syncLog').textContent = '';
+  try {
+    await openDB();
+    status.textContent = 'Syncing...';
+    const sourceResults = {};
+    for (const [name, fn] of [['weight', syncWeightSource], ['heartrate', syncHeartRateSource], ['steps', syncStepsSource], ['sleep', syncSleepSource]]){
+      try {
+        await fn();
+        sourceResults[name] = 'ok';
+      } catch(e){
+        sourceResults[name] = 'FAILED: ' + e.message;
+        log(`\n!!! ${name.toUpperCase()} FAILED, but continuing to the next source: ${e.message}`);
+      }
+    }
+
+    const weightRecords = await getAllRecords('weight');
+    const hrMaterialized = await materializeByBestFile('heartrate', 'day', 'sampleCount');
+    const stepsMaterialized = await materializeByBestFile('steps', 'day', 'totalSteps');
+    const sleepMaterialized = await materializeSleepNights();
+    log(`\n=== TOTALS IN LOCAL DB (materialized/merged, not raw file count) ===`);
+    log(`Weight: ${weightRecords.length} readings stored`);
+    log(`Heart Rate: ${hrMaterialized.length} distinct days (fullest file per day used)`);
+    log(`Steps: ${stepsMaterialized.length} distinct days (fullest file per day used)`);
+    log(`Sleep: ${sleepMaterialized.length} nights (summed across any files covering the same night)`);
+    const latestWeight = weightRecords.sort((a,b) => b.dateTime.localeCompare(a.dateTime))[0];
+    const latestHr = hrMaterialized.sort((a,b) => b.day.localeCompare(a.day))[0];
+    const latestSteps = stepsMaterialized.sort((a,b) => b.day.localeCompare(a.day))[0];
+    const latestSleep = sleepMaterialized.sort((a,b) => b.night.localeCompare(a.night))[0];
+    if (latestWeight) log(`Latest weight: ${latestWeight.weight}kg (${latestWeight.dateTime}), body fat ${latestWeight.bodyFatPct}%`);
+    if (latestHr) log(`Latest HR day: ${latestHr.day} — avg ${latestHr.avgHr}bpm, max ${latestHr.maxHr}bpm (${latestHr.sampleCount} samples)`);
+    if (latestSteps) log(`Latest steps day: ${latestSteps.day} — ${latestSteps.totalSteps} steps`);
+    if (latestSleep) log(`Latest sleep night (${latestSleep.night}): ${latestSleep.totalSleepMin} min total — REM ${latestSleep.remMin}m, Light ${latestSleep.lightMin}m, Deep ${latestSleep.deepMin}m, Awake ${latestSleep.awakeMin}m`);
+    status.textContent = 'Done.';
+    markStep('step3', 'done');
+    await renderDashboard();
+  } catch(e){
+    log(`FATAL ERROR: ${e.message}`);
+    status.textContent = 'Failed — see log.';
+    markStep('step3', 'error');
+  }
+  btn.disabled = false;
+});
+
+// ====================================================================
+// DASHBOARD UI — reads the materialized/merged data, period navigation
+// ====================================================================
+let currentPeriod = 'weekly';
+let anchorDate = new Date();
+let charts = {}; // holds Chart.js instances so we can destroy/recreate on re-render
+
+function isoOf(d){
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function mondayOfDate(d){
+  const day = d.getDay();
+  const diff = (day===0? -6 : 1-day);
+  const m = new Date(d); m.setDate(m.getDate()+diff);
+  m.setHours(0,0,0,0);
+  return m;
+}
+// day-keys from different sources use different formats: Weight/HR/Steps use "2026.08.06[...]", Sleep uses "2026-08-06"
+function parseDayKey(key){
+  const datePart = key.split(' ')[0];
+  const parts = datePart.split(/[.\-]/).map(Number);
+  return new Date(parts[0], parts[1]-1, parts[2]);
+}
+function inRange(d, start, end){
+  return d >= start && d <= end;
+}
+function getPeriodRange(period, offset, anchor){
+  const a = new Date(anchor);
+  if (period === 'daily'){
+    const t = new Date(a); t.setDate(t.getDate() - offset); t.setHours(0,0,0,0);
+    const end = new Date(t); end.setHours(23,59,59,999);
+    return {start: t, end};
+  }
+  if (period === 'weekly'){
+    const monday = mondayOfDate(a); monday.setDate(monday.getDate() - 7*offset);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate()+6); sunday.setHours(23,59,59,999);
+    return {start: monday, end: sunday};
+  }
+  if (period === 'monthly'){
+    const y = a.getFullYear(), m = a.getMonth() - offset;
+    const start = new Date(y, m, 1);
+    const end = new Date(y, m+1, 0, 23,59,59,999);
+    return {start, end};
+  }
+  if (period === 'yearly'){
+    const y = a.getFullYear() - offset;
+    return {start: new Date(y,0,1), end: new Date(y,11,31,23,59,59,999)};
+  }
+}
+function fmtDateShort(d){ return d.toLocaleDateString('en-AU',{day:'numeric',month:'short'}); }
+function periodLabelText(period, range){
+  if (period === 'daily') return fmtDateShort(range.start);
+  if (period === 'yearly') return range.start.getFullYear().toString();
+  return `${fmtDateShort(range.start)} – ${fmtDateShort(range.end)}`;
+}
+
+function fmtN(v, decimals){
+  if (v===null || v===undefined || isNaN(v)) return null;
+  return decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString();
+}
+function kpiCardHtml(label, value, unit){
+  const noData = value===null;
+  return `<div class="kpi-card${noData?' none':''}">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value num">${noData ? 'no data' : value}</div>
+    ${!noData && unit ? `<div class="kpi-sub">${unit}</div>` : ''}
+  </div>`;
+}
+
+async function renderDashboard(){
+  let hasAnyData = false;
+  try {
+    if (!db) await openDB();
+    const weightAll = await getAllRecords('weight');
+    const hrAll = await materializeByBestFile('heartrate', 'day', 'sampleCount');
+    const stepsAll = await materializeByBestFile('steps', 'day', 'totalSteps');
+    const sleepAll = await materializeSleepNights();
+    hasAnyData = weightAll.length || hrAll.length || stepsAll.length || sleepAll.length;
+    document.getElementById('noDataMsg').style.display = hasAnyData ? 'none' : 'block';
+
+    const range = getPeriodRange(currentPeriod, 0, anchorDate);
+    document.getElementById('periodLabel').textContent = periodLabelText(currentPeriod, range);
+    document.getElementById('anchorDateInput').value = isoOf(anchorDate);
+    document.getElementById('navNext').disabled = isoOf(anchorDate) >= isoOf(new Date());
+
+    // ---- filter each source to the current period ----
+    const weightInRange = weightAll.filter(r => inRange(parseDayKey(r.dateTime), range.start, range.end))
+      .sort((a,b) => a.dateTime.localeCompare(b.dateTime));
+    const hrInRange = hrAll.filter(r => inRange(parseDayKey(r.day), range.start, range.end));
+    const stepsInRange = stepsAll.filter(r => inRange(parseDayKey(r.day), range.start, range.end));
+    const sleepInRange = sleepAll.filter(r => inRange(parseDayKey(r.night), range.start, range.end));
+
+    const latestWeight = weightInRange[weightInRange.length-1] || null;
+    const avgSteps = stepsInRange.length ? stepsInRange.reduce((s,r)=>s+r.totalSteps,0)/stepsInRange.length : null;
+    const totalSteps = stepsInRange.length ? stepsInRange.reduce((s,r)=>s+r.totalSteps,0) : null;
+    const avgHr = hrInRange.length ? hrInRange.reduce((s,r)=>s+r.avgHr,0)/hrInRange.length : null;
+    const maxHr = hrInRange.length ? Math.max(...hrInRange.map(r=>r.maxHr)) : null;
+    const avgSleep = sleepInRange.length ? sleepInRange.reduce((s,r)=>s+r.totalSleepMin,0)/sleepInRange.length : null;
+    const latestSleep = sleepInRange[sleepInRange.length-1] || null;
+
+    const kpis = [
+      {label:'Weight', value: latestWeight ? latestWeight.weight.toFixed(1) : null, unit:'kg (latest)'},
+      {label:'Body Fat', value: (latestWeight && latestWeight.bodyFatPct) ? latestWeight.bodyFatPct.toFixed(1) : null, unit:'%'},
+      {label:'Avg Steps/Day', value: fmtN(avgSteps), unit:''},
+      {label:'Total Steps', value: fmtN(totalSteps), unit:''},
+      {label:'Avg Heart Rate', value: fmtN(avgHr), unit:'bpm'},
+      {label:'Highest Heart Rate', value: fmtN(maxHr), unit:'bpm'},
+      {label:'Avg Sleep', value: avgSleep ? `${Math.floor(avgSleep/60)}h${Math.round(avgSleep%60)}m` : null, unit:''},
+      {label:'Latest Sleep', value: latestSleep ? `${Math.floor(latestSleep.totalSleepMin/60)}h${Math.round(latestSleep.totalSleepMin%60)}m` : null, unit: latestSleep ? latestSleep.night : ''},
+    ];
+    document.getElementById('kpiRow').innerHTML = kpis.map(k => kpiCardHtml(k.label, k.value, k.unit)).join('');
+
+    renderCharts(weightAll, hrAll, stepsAll, sleepAll);
+  } catch(e){
+    console.error('renderDashboard error:', e);
+  }
+}
+
+function renderCharts(weightAll, hrAll, stepsAll, sleepAll){
+  Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  Chart.defaults.color = '#93A3B8';
+  const gridOpt = {grid:{color:'#1A2739'}, ticks:{color:'#93A3B8', font:{size:9}}};
+  const last = (arr, n) => arr.slice(-n);
+
+  // Weight & Body Fat — last 60 readings
+  const w = last(weightAll.slice().sort((a,b)=>a.dateTime.localeCompare(b.dateTime)), 60);
+  if (charts.weight) charts.weight.destroy();
+  charts.weight = new Chart(document.getElementById('weightChart'), {
+    type:'line',
+    data:{labels: w.map(r=>fmtDateShort(parseDayKey(r.dateTime))), datasets:[
+      {label:'Weight (kg)', data:w.map(r=>r.weight), borderColor:'#5B9BD5', backgroundColor:'#5B9BD522', fill:true, tension:.25, pointRadius:0, borderWidth:2, yAxisID:'y'},
+      {label:'Body Fat %', data:w.map(r=>r.bodyFatPct), borderColor:'#1FC98E', tension:.25, pointRadius:0, borderWidth:1.3, borderDash:[4,3], yAxisID:'y1'},
+    ]},
+    options:{responsive:true, plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},
+      scales:{x:{...gridOpt, ticks:{...gridOpt.ticks, maxTicksLimit:8}}, y:{...gridOpt}, y1:{position:'right', grid:{display:false}, ticks:{color:'#93A3B8',font:{size:9}}}}}
+  });
+
+  // Steps — last 30 days
+  const s = last(stepsAll.slice().sort((a,b)=>a.day.localeCompare(b.day)), 30);
+  if (charts.steps) charts.steps.destroy();
+  charts.steps = new Chart(document.getElementById('stepsChart'), {
+    type:'bar',
+    data:{labels: s.map(r=>fmtDateShort(parseDayKey(r.day))), datasets:[
+      {label:'Steps', data:s.map(r=>r.totalSteps), backgroundColor:'#E8A33D80', borderRadius:2},
+    ]},
+    options:{responsive:true, plugins:{legend:{display:false}}, scales:{x:{...gridOpt, ticks:{...gridOpt.ticks, maxTicksLimit:8}}, y:gridOpt}}
+  });
+
+  // Heart Rate — last 30 days
+  const h = last(hrAll.slice().sort((a,b)=>a.day.localeCompare(b.day)), 30);
+  if (charts.hr) charts.hr.destroy();
+  charts.hr = new Chart(document.getElementById('hrChart'), {
+    type:'line',
+    data:{labels: h.map(r=>fmtDateShort(parseDayKey(r.day))), datasets:[
+      {label:'Avg HR', data:h.map(r=>r.avgHr), borderColor:'#E1595A', tension:.25, pointRadius:2, borderWidth:2},
+      {label:'Max HR', data:h.map(r=>r.maxHr), borderColor:'#E1595A80', tension:.25, pointRadius:2, borderWidth:1.3, borderDash:[4,3]},
+    ]},
+    options:{responsive:true, plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}}, scales:{x:{...gridOpt, ticks:{...gridOpt.ticks, maxTicksLimit:8}}, y:gridOpt}}
+  });
+
+  // Sleep — last 30 nights
+  const sl = last(sleepAll.slice().sort((a,b)=>a.night.localeCompare(b.night)), 30);
+  if (charts.sleep) charts.sleep.destroy();
+  charts.sleep = new Chart(document.getElementById('sleepChart'), {
+    type:'bar',
+    data:{labels: sl.map(r=>fmtDateShort(parseDayKey(r.night))), datasets:[
+      {label:'REM', data:sl.map(r=>r.remMin), backgroundColor:'#9B7FE8'},
+      {label:'Light', data:sl.map(r=>r.lightMin), backgroundColor:'#5B9BD5'},
+      {label:'Deep', data:sl.map(r=>r.deepMin), backgroundColor:'#1FC98E'},
+      {label:'Awake', data:sl.map(r=>r.awakeMin), backgroundColor:'#E1595A'},
+    ]},
+    options:{responsive:true, plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},
+      scales:{x:{...gridOpt, ticks:{...gridOpt.ticks, maxTicksLimit:8}, stacked:true}, y:{...gridOpt, stacked:true}}}
+  });
+}
+
+// ---- period/nav controls ----
+document.querySelectorAll('.period-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriod = btn.dataset.period;
+    renderDashboard();
+  });
+});
+function stepAnchor(dir){
+  const d = new Date(anchorDate);
+  if (currentPeriod==='daily') d.setDate(d.getDate()+dir);
+  else if (currentPeriod==='weekly') d.setDate(d.getDate()+dir*7);
+  else if (currentPeriod==='monthly') d.setMonth(d.getMonth()+dir);
+  else if (currentPeriod==='yearly') d.setFullYear(d.getFullYear()+dir);
+  anchorDate = d;
+  renderDashboard();
+}
+document.getElementById('navPrev').addEventListener('click', ()=>stepAnchor(-1));
+document.getElementById('navNext').addEventListener('click', ()=>stepAnchor(1));
+document.getElementById('navToday').addEventListener('click', ()=>{ anchorDate = new Date(); renderDashboard(); });
+document.getElementById('anchorDateInput').addEventListener('change', (e)=>{
+  if (e.target.value){ anchorDate = new Date(e.target.value+'T00:00:00'); renderDashboard(); }
+});
+
+// render whatever's already cached in IndexedDB on page load — no sign-in needed to SEE existing data
+renderDashboard();
+</script>
+</body>
+</html>
