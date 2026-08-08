@@ -369,23 +369,41 @@ footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);color:v
   </div>
 
 
-  <div class="section-head"><h2>Data Sync</h2><span class="cap">connect Google Drive and refresh from source</span></div>
+  <div class="section-head"><h2>Data Sync</h2><span class="cap">one button — refreshes every live source</span></div>
   <div class="card">
-    <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-dim);">
-      This dashboard reads your Drive folders directly — no rebuild needed. First sync scans full history;
-      every sync after only fetches files modified since the last one. Data is cached in this browser (IndexedDB).
-    </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button class="update-btn" id="connectBtn" style="margin-top:0;">Connect Google Drive</button>
-      <button class="update-btn" id="syncBtn" style="margin-top:0;" disabled>Sync Now</button>
+      <button class="update-btn" id="syncBtn" style="margin-top:0;" disabled>&#8635; Refresh Everything</button>
       <span id="syncStatus" style="font-size:12px;color:var(--text-dim);"></span>
     </div>
+    <div style="margin-top:16px;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;">Source freshness</div>
+    <div id="sourceStatus" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
     <pre id="syncLog" class="coach-output" style="display:none;margin-top:14px;"></pre>
     <div class="gap-note" style="margin-top:16px;">
-      <b>Live now:</b> Weight &amp; BMI (Eufy), Strength — sets/reps/volume/PRs/core (Jefit), Heart rate, Steps.<br>
-      <b>Not yet wired to live sync:</b> Body fat (Evolt), Nutrition (MyFitnessPal), Cardio sessions &amp; equipment
-      (Health Sync Activities), Body measurements (RENPHO). Those panels show "no data" rather than
-      showing stale or invented numbers.
+      Refresh only pulls what each app has already pushed to Drive. If a source shows stale,
+      open that app and let it sync first &mdash; <b>Jefit needs a manual CSV export each time</b>,
+      which is the usual reason strength lags.
+    </div>
+  </div>
+
+  <div class="section-head"><h2>Body Measurements Entry</h2><span class="cap">RENPHO &mdash; type them in, or import from Drive</span></div>
+  <div class="card">
+    <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-dim);">
+      Pick a date and enter what the RENPHO app shows. Saved in this browser (same as coach notes) and
+      feeds the Body Measurements panel and coach-note history above. Re-select a saved date to edit it.
+    </p>
+    <div class="coach-form" id="measureForm"></div>
+    <button class="update-btn" id="saveMeasureBtn">Save Measurements</button>
+    <div style="margin-top:16px;font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;">Saved entries</div>
+    <div id="savedMeasures" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
+    <div class="coach-field full" style="margin-top:18px;">
+      <label>RENPHO Drive folder ID (optional &mdash; enables automatic import)</label>
+      <input type="text" id="renphoFolder" placeholder="paste the folder ID from your Drive URL">
+    </div>
+    <div class="gap-note" style="margin-top:14px;">
+      <b>Heads up on automatic import:</b> the column matcher is written against RENPHO&rsquo;s in-app labels
+      but has <b>not been tested against a real RENPHO export</b> &mdash; none has been provided yet.
+      Check the first import against the app before trusting it. Manual entries always win on the same date.
     </div>
   </div>
 
@@ -747,6 +765,109 @@ async function syncJefit(){
   syncLog(`Jefit: ${sets} sets${orphans ? ` (${orphans} orphaned skipped)` : ''}.`);
 }
 
+
+/* ---------------- BODY MEASUREMENTS (RENPHO) ----------------
+   Two paths into the same DATA series, because RENPHO has no guaranteed
+   Drive export on every device:
+     (a) manual entry  — typed in the dashboard, stored in localStorage
+                         (same durability model as the coach-note answers)
+     (b) Drive import  — parses CSVs from a RENPHO folder if you have one
+   Manual entry wins on a date collision, since it is the value you
+   explicitly confirmed by hand.
+
+   NOTE ON (b): the column auto-detect below is written against RENPHO's
+   labels as they appear in the app (Neck, Shoulder, L-Bicep, ... belt line).
+   It has NOT yet been verified against a real RENPHO export file — no such
+   file has been provided. Until one is, treat imported values as unverified
+   and cross-check the first import against the app.
+------------------------------------------------------------- */
+const MEASURE_FIELDS = [
+  { key:'Neck',      labels:['neck'] },
+  { key:'Shoulder',  labels:['shoulder'] },
+  { key:'L-Bicep',   labels:['l-bicep','left bicep','lbicep'] },
+  { key:'R-Bicep',   labels:['r-bicep','right bicep','rbicep'] },
+  { key:'Chest',     labels:['chest'] },
+  { key:'Waist',     labels:['waist'] },
+  { key:'Abdomen',   labels:['abdomen'] },
+  { key:'Hip',       labels:['hip'] },
+  { key:'L-Thigh',   labels:['l-thigh','left thigh','lthigh'] },
+  { key:'R-Thigh',   labels:['r-thigh','right thigh','rthigh'] },
+  { key:'L-Calf',    labels:['l-calf','left calf','lcalf'] },
+  { key:'R-Calf',    labels:['r-calf','right calf','rcalf'] },
+  { key:'Belt Line', labels:['belt line','beltline','belt'] },
+];
+
+const MEASURE_LS_KEY = 'renpho_manual_measurements';
+const RENPHO_FOLDER_LS_KEY = 'renpho_folder_id';
+
+function loadManualMeasurements(){
+  try { return JSON.parse(localStorage.getItem(MEASURE_LS_KEY) || '{}'); }
+  catch(e){ return {}; }
+}
+function saveManualMeasurement(dateISO, values){
+  const all = loadManualMeasurements();
+  all[dateISO] = Object.assign({}, all[dateISO] || {}, values);
+  localStorage.setItem(MEASURE_LS_KEY, JSON.stringify(all));
+}
+function deleteManualMeasurement(dateISO){
+  const all = loadManualMeasurements();
+  delete all[dateISO];
+  localStorage.setItem(MEASURE_LS_KEY, JSON.stringify(all));
+}
+
+async function syncRenpho(){
+  const folderId = localStorage.getItem(RENPHO_FOLDER_LS_KEY);
+  if (!folderId){
+    syncLog('\n--- RENPHO --- no folder ID set, skipping Drive import (manual entries still apply).');
+    return;
+  }
+  syncLog('\n--- RENPHO (measurements) ---');
+  const { files, first } = await listFiles(folderId, 'renpho');
+  syncLog(`${first ? 'First' : 'Incremental'} sync: ${files.length} file(s).`);
+  let newest = null, n = 0;
+  for (const f of files){
+    try {
+      const txt = await getText(f.id); if (!txt) continue;
+      const lines = txt.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) continue;
+      const hdr = parseCsvLine(lines[0]).map(h => h.toLowerCase().trim());
+      const dateCol = hdr.findIndex(h => h.includes('date') || h.includes('time'));
+      if (dateCol === -1){
+        syncLog(`  ${f.name}: no date column found (saw: ${hdr.join(', ')}) — skipped.`);
+        continue;
+      }
+      const colFor = {};
+      for (const fld of MEASURE_FIELDS){
+        const i = hdr.findIndex(h => fld.labels.some(l => h === l || h.startsWith(l)));
+        if (i !== -1) colFor[fld.key] = i;
+      }
+      if (!Object.keys(colFor).length){
+        syncLog(`  ${f.name}: no measurement columns matched — skipped.`);
+        continue;
+      }
+      const batch = [];
+      for (const line of lines.slice(1)){
+        const v = parseCsvLine(line);
+        if (v.length !== hdr.length) continue;
+        const day = dayOf(v[dateCol]);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+        const vals = {};
+        for (const k of Object.keys(colFor)){
+          const num = parseFloat(v[colFor[k]]);
+          if (!isNaN(num) && num > 0) vals[k] = num;
+        }
+        if (Object.keys(vals).length){
+          batch.push({ uid:`renpho_${day}`, source:'renpho', day, values:vals });
+        }
+      }
+      await putRecordsBatch(batch); n += batch.length;
+      if (!newest || f.modifiedTime > newest) newest = f.modifiedTime;
+    } catch(e){ syncLog(`  failed ${f.name}: ${e.message}`); }
+  }
+  await setSyncState('renpho', newest || new Date().toISOString());
+  syncLog(`RENPHO: ${n} measurement day(s) imported.`);
+}
+
 /* ---------------- BUILD DATA (shape-compatible with the UI) ---------------- */
 const EMPTY_SERIES = [
   'Weight','BMI','Body Fat % (SOURCE OF TRUTH)','Muscle Mass',
@@ -766,10 +887,18 @@ const EMPTY_SERIES = [
 const dayOf = s => (s || '').split(' ')[0].replace(/\./g,'-');
 
 async function buildDATA(){
-  const [wRaw, hrRaw, stRaw, jfRaw] = await Promise.all([
+  const [wRaw, hrRaw, stRaw, jfRaw, rpRaw] = await Promise.all([
     getAllRecords('weight'), getAllRecords('heartrate'),
-    getAllRecords('steps'), getAllRecords('jefit'),
+    getAllRecords('steps'), getAllRecords('jefit'), getAllRecords('renpho'),
   ]);
+
+  // measurements: Drive import first, manual entry overrides on collision
+  const measureByDay = {};
+  for (const r of rpRaw) measureByDay[dayOf(r.day)] = Object.assign({}, r.values);
+  const manual = loadManualMeasurements();
+  for (const d of Object.keys(manual)){
+    measureByDay[d] = Object.assign({}, measureByDay[d] || {}, manual[d]);
+  }
 
   // ---- collapse to per-day ----
   const weightByDay = {};
@@ -803,7 +932,8 @@ async function buildDATA(){
 
   // ---- contiguous date index ----
   const allDays = new Set([
-    ...Object.keys(weightByDay), ...Object.keys(hr), ...Object.keys(steps), ...Object.keys(jf)
+    ...Object.keys(weightByDay), ...Object.keys(hr), ...Object.keys(steps),
+    ...Object.keys(jf), ...Object.keys(measureByDay)
   ].filter(Boolean));
   if (!allDays.size) return null;
   const sorted = [...allDays].sort();
@@ -842,13 +972,17 @@ async function buildDATA(){
       const v = prBest[`${d}|${c}`];
       if (v) set(catKey[c], i, +v.toFixed(1));
     }
+    const m = measureByDay[d];
+    if (m) for (const k of Object.keys(m)) set(k, i, m[k]);
   });
 
+  const lastDay = obj => { const k = Object.keys(obj).sort(); return k.length ? k[k.length-1] : null; };
   DATA.__coverage = {
-    weight: Object.keys(weightByDay).length,
-    heartrate: Object.keys(hr).length,
-    steps: Object.keys(steps).length,
-    jefit: Object.keys(jf).length,
+    weight:    { days:Object.keys(weightByDay).length, last:lastDay(weightByDay) },
+    heartrate: { days:Object.keys(hr).length,          last:lastDay(hr) },
+    steps:     { days:Object.keys(steps).length,       last:lastDay(steps) },
+    jefit:     { days:Object.keys(jf).length,          last:lastDay(jf) },
+    renpho:    { days:Object.keys(measureByDay).length,last:lastDay(measureByDay) },
   };
   return DATA;
 }
@@ -859,16 +993,104 @@ function showGate(msg){
   if (g){ g.style.display = 'block'; g.innerHTML = msg; }
 }
 
+/* ---------------- source freshness panel ---------------- */
+const SOURCE_META = {
+  weight:    { label:'Weight (Eufy Life)',      staleDays:3,  live:true },
+  jefit:     { label:'Strength (Jefit)',        staleDays:4,  live:true },
+  steps:     { label:'Steps (Health Sync)',     staleDays:3,  live:true },
+  heartrate: { label:'Heart rate (Health Sync)',staleDays:3,  live:true },
+  renpho:    { label:'Measurements (RENPHO)',   staleDays:10, live:true },
+};
+const NOT_WIRED = [
+  ['Body fat (Evolt 360)', 'no export path — enter after each scan'],
+  ['Nutrition (MyFitnessPal)', 'PDF export, no parser yet'],
+  ['Cardio sessions (Health Sync)', 'not yet built'],
+];
+
+function renderSourceStatus(coverage){
+  const el = document.getElementById('sourceStatus');
+  if (!el) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  let rows = '';
+  for (const k of Object.keys(SOURCE_META)){
+    const m = SOURCE_META[k], c = (coverage && coverage[k]) || { days:0, last:null };
+    let age = null, cls = 'dead', txt = 'never synced';
+    if (c.last){
+      age = Math.round((today - new Date(c.last+'T00:00:00')) / 86400000);
+      cls = age <= m.staleDays ? 'fresh' : 'stale';
+      txt = age === 0 ? 'today' : age === 1 ? 'yesterday' : `${age} days ago`;
+    }
+    rows += `<div class="source-chip"><span class="dot ${cls}"></span>
+      <span class="name">${m.label}</span>
+      <span class="date">${txt}${c.days ? ` · ${c.days}d` : ''}</span></div>`;
+  }
+  for (const [n, why] of NOT_WIRED){
+    rows += `<div class="source-chip"><span class="dot dead"></span>
+      <span class="name">${n}</span><span class="date">${why}</span></div>`;
+  }
+  el.innerHTML = rows;
+}
+
+/* ---------------- measurement entry form ---------------- */
+function buildMeasureForm(){
+  const grid = document.getElementById('measureForm');
+  if (!grid) return;
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  let html = `<div class="coach-field full">
+      <label>Date of measurement</label>
+      <input type="date" id="measureDate" value="${iso}">
+    </div>`;
+  for (const f of MEASURE_FIELDS){
+    html += `<div class="coach-field">
+      <label>${f.key} (cm)</label>
+      <input type="number" step="0.1" min="0" id="mf_${f.key.replace(/[^a-zA-Z]/g,'')}" placeholder="—">
+    </div>`;
+  }
+  grid.innerHTML = html;
+  document.getElementById('measureDate').addEventListener('change', e => loadMeasureForm(e.target.value));
+  loadMeasureForm(iso);
+}
+function measureInput(key){ return document.getElementById('mf_' + key.replace(/[^a-zA-Z]/g,'')); }
+function loadMeasureForm(dateISO){
+  const saved = loadManualMeasurements()[dateISO] || {};
+  for (const f of MEASURE_FIELDS){
+    const el = measureInput(f.key);
+    if (el) el.value = (saved[f.key] !== undefined) ? saved[f.key] : '';
+  }
+  renderSavedMeasureDates();
+}
+function renderSavedMeasureDates(){
+  const el = document.getElementById('savedMeasures');
+  if (!el) return;
+  const all = loadManualMeasurements();
+  const dates = Object.keys(all).sort().reverse();
+  if (!dates.length){ el.innerHTML = '<span style="color:var(--text-faint);font-size:11.5px;">No manual entries saved yet.</span>'; return; }
+  el.innerHTML = dates.map(d => {
+    const n = Object.keys(all[d]).length;
+    return `<div class="source-chip"><span class="dot fresh"></span>
+      <span class="name">${d}</span><span class="date">${n} fields</span>
+      <span data-del="${d}" style="cursor:pointer;color:var(--coral);margin-left:6px;">✕</span></div>`;
+  }).join('');
+  el.querySelectorAll('[data-del]').forEach(s => s.addEventListener('click', () => {
+    if (confirm('Delete measurements for ' + s.dataset.del + '?')){
+      deleteManualMeasurement(s.dataset.del);
+      location.reload();
+    }
+  }));
+}
+
 async function loadAndBoot(){
   await openDB();
   const DATA = await buildDATA();
+  buildMeasureForm();
   if (!DATA){
-    showGate('No synced data yet — open <b>Data Sync</b> below, connect Google Drive, then hit <b>Sync Now</b>.');
+    renderSourceStatus(null);
+    showGate('No synced data yet — open <b>Data Sync</b> below, connect Google Drive, then hit <b>Refresh Everything</b>.');
     return;
   }
   document.getElementById('dataGate').style.display = 'none';
-  const c = DATA.__coverage;
-  syncLog(`Loaded from local cache — weight ${c.weight}d, HR ${c.heartrate}d, steps ${c.steps}d, strength ${c.jefit}d.`);
+  renderSourceStatus(DATA.__coverage);
   bootDashboard(DATA);
 }
 
@@ -887,6 +1109,31 @@ window.onload = () => {
 
   document.getElementById('connectBtn').addEventListener('click', () => tokenClient.requestAccessToken());
 
+  const rf = document.getElementById('renphoFolder');
+  if (rf){
+    rf.value = localStorage.getItem(RENPHO_FOLDER_LS_KEY) || '';
+    rf.addEventListener('change', () => {
+      localStorage.setItem(RENPHO_FOLDER_LS_KEY, rf.value.trim());
+      setStatus('RENPHO folder ID saved.');
+    });
+  }
+
+  const saveBtn = document.getElementById('saveMeasureBtn');
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    const dateISO = document.getElementById('measureDate').value;
+    if (!dateISO){ alert('Pick a date first.'); return; }
+    const vals = {};
+    for (const f of MEASURE_FIELDS){
+      const el = measureInput(f.key);
+      const n = parseFloat(el && el.value);
+      if (!isNaN(n) && n > 0) vals[f.key] = n;
+    }
+    if (!Object.keys(vals).length){ alert('Enter at least one measurement.'); return; }
+    saveManualMeasurement(dateISO, vals);
+    setStatus(`Saved ${Object.keys(vals).length} measurements for ${dateISO}. Reloading...`);
+    setTimeout(() => location.reload(), 700);
+  });
+
   document.getElementById('syncBtn').addEventListener('click', async () => {
     if (!accessToken){ alert('Connect Google Drive first.'); return; }
     const btn = document.getElementById('syncBtn');
@@ -895,7 +1142,7 @@ window.onload = () => {
     setStatus('Syncing...');
     try {
       await openDB();
-      for (const [name, fn] of [['weight',syncWeight],['heartrate',syncHeartRate],['steps',syncSteps],['jefit',syncJefit]]){
+      for (const [name, fn] of [['weight',syncWeight],['heartrate',syncHeartRate],['steps',syncSteps],['jefit',syncJefit],['renpho',syncRenpho]]){
         try { await fn(); }
         catch(e){ syncLog(`\n!!! ${name.toUpperCase()} FAILED (continuing): ${e.message}`); }
       }
